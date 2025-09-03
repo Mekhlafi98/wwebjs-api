@@ -1,7 +1,7 @@
 # The version property is now optional in modern Docker Compose
-# version: '3.8'
+#version: '3.8'
 
-name: wwebjs-api
+#name: wwebjs-api
 
 services:
   api:
@@ -9,7 +9,7 @@ services:
     container_name: wwebjs-api
     restart: always
     ports:
-      - "3000:3000"
+      - "4000:3000"
     environment:
       # Core Configuration
       - BASE_WEBHOOK_URL=http://localhost:3000/localCallbackExample
