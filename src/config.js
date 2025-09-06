@@ -25,6 +25,9 @@ const autoStartSessions = process.env.AUTO_START_SESSIONS ? (process.env.AUTO_ST
 const basePath = process.env.BASE_PATH || ''
 const trustProxy = process.env.TRUST_PROXY ? (process.env.TRUST_PROXY).toLowerCase() === 'true' : false
 
+const storageMode = process.env.STORAGE_MODE || 'local'
+const mongoUri = process.env.MONGO_URI || 'none'
+
 module.exports = {
   sessionFolderPath,
   enableLocalCallbackExample,
@@ -47,5 +50,7 @@ module.exports = {
   enableWebSocket,
   autoStartSessions,
   basePath,
-  trustProxy
+  trustProxy,
+  storageMode,
+  mongoUri,
 }
