@@ -6,6 +6,9 @@ const mongoose = require('mongoose')
 const { logger } = require('./logger')
 const { patchWWebLibrary, triggerWebhook, waitForNestedObject, isEventEnabled, sendMessageSeenStatus, sleep } = require('./utils')
 const { initWebSocketServer, terminateWebSocketServer, triggerWebSocket } = require('./websocket')
+
+const { LocalAuth } = require('whatsapp-web.js')
+const MongoAuth = require('./mongoAuth') // custom auth strategy
 const {
   sessionFolderPath,
   maxAttachmentSize,
@@ -15,7 +18,9 @@ const {
   recoverSessions,
   chromeBin,
   headless,
-  releaseBrowserLock
+  releaseBrowserLock,
+  storageMode,
+  mongoUri,
 } = require('./config')
 
 // MongoDB Schema for per-session config
@@ -123,6 +128,26 @@ const setupSession = async (sessionId, webhookURL) => {
     return { success: false, message: error.message, client: null }
   }
 }
+
+
+const setupSession = async (sessionId, webhookURL) => {
+  let authStrategy
+  if (storageMode === 'local') {
+    authStrategy = new LocalAuth({ clientId: sessionId, dataPath: sessionFolderPath })
+  } else if (storageMode === 'mongo') {
+    authStrategy = new MongoAuth({ sessionId, mongoUri })
+  }
+
+  const client = new Client({ authStrategy, puppeteer: {...} })
+
+  // Save webhook URL per session
+  client.sessionWebhook = webhookURL || baseWebhookURL
+
+  await client.initialize()
+  sessions.set(sessionId, client)
+  return client
+}
+
 
 // ------------------------
 // Initialize client events
