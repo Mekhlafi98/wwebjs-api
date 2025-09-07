@@ -2,7 +2,7 @@ const app = require('./src/app')
 const { baseWebhookURL, enableWebHook, enableWebSocket, autoStartSessions } = require('./src/config')
 const { logger } = require('./src/logger')
 const { handleUpgrade } = require('./src/websocket')
-const { restoreSessions, initializeMongoDB } = require('./src/sessionManager')
+const { restoreSessions, initializeMongoDB } = require('./src/sessionManagerRemote')
 
 require('dotenv').config()
 

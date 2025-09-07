@@ -1,8 +1,9 @@
-// sessionManager.js
-const { Client, LocalAuth } = require('whatsapp-web.js')
+// sessionManagerRemote.js - Using official RemoteAuth strategy
+const { Client, LocalAuth, RemoteAuth } = require('whatsapp-web.js')
+const { MongoStore } = require('wwebjs-mongo')
+const mongoose = require('mongoose')
 const fs = require('fs')
 const path = require('path')
-const mongoose = require('mongoose')
 const { logger } = require('./logger')
 const { patchWWebLibrary, triggerWebhook, waitForNestedObject, isEventEnabled, sendMessageSeenStatus, sleep } = require('./utils')
 const { initWebSocketServer, terminateWebSocketServer, triggerWebSocket } = require('./websocket')
@@ -21,15 +22,15 @@ const {
   mongoUri
 } = require('./config')
 
-// MongoDB Schema for per-session config
-const sessionSchema = new mongoose.Schema({
+// MongoDB Schema for per-session webhook configs
+const sessionWebhookSchema = new mongoose.Schema({
   sessionId: { type: String, required: true, unique: true },
   webhookURL: { type: String, required: true },
   createdAt: { type: Date, default: Date.now },
   updatedAt: { type: Date, default: Date.now }
 })
 
-const SessionModel = mongoose.model('Session', sessionSchema)
+const SessionWebhookModel = mongoose.model('SessionWebhook', sessionWebhookSchema)
 
 // In-memory map for active clients
 const sessions = new Map()
@@ -37,7 +38,7 @@ const sessions = new Map()
 // Initialize MongoDB connection
 const initializeMongoDB = async () => {
   if (!enableMongoDB) {
-    logger.info('MongoDB is disabled, using in-memory storage for session configs')
+    logger.info('MongoDB is disabled, using LocalAuth only')
     return
   }
 
@@ -105,7 +106,7 @@ const restoreSessions = async () => {
 }
 
 // ------------------------
-// Setup a session
+// Setup a session with RemoteAuth or LocalAuth
 // ------------------------
 const setupSession = async (sessionId, webhookURL) => {
   try {
@@ -115,71 +116,94 @@ const setupSession = async (sessionId, webhookURL) => {
 
     logger.info({ sessionId }, 'Session is being initiated')
 
-    // Save per-session config in MongoDB if enabled
-    if (enableMongoDB && webhookURL) {
+    // Save per-session webhook config in MongoDB
+    if (webhookURL) {
       try {
-        await SessionModel.findOneAndUpdate(
+        await SessionWebhookModel.findOneAndUpdate(
           { sessionId },
           { webhookURL, updatedAt: new Date() },
           { upsert: true, new: true }
         )
-        logger.info({ sessionId }, 'Session config saved to MongoDB')
+        logger.info({ sessionId }, 'Session webhook config saved to MongoDB')
       } catch (error) {
-        logger.error({ sessionId, err: error }, 'Failed to save session config to MongoDB')
+        logger.error({ sessionId, err: error }, 'Failed to save session webhook config to MongoDB')
       }
     }
 
-    const localAuth = new LocalAuth({ clientId: sessionId, dataPath: sessionFolderPath })
-    delete localAuth.logout
-    localAuth.logout = () => { }
+    // Choose auth strategy based on MongoDB availability
+    let authStrategy
+    if (enableMongoDB) {
+      // Use RemoteAuth with MongoDB
+      const store = new MongoStore({ mongoose: mongoose })
+      authStrategy = new RemoteAuth({
+        clientId: sessionId,
+        store: store,
+        backupSyncIntervalMs: 300000 // 5 minutes
+      })
+      logger.info({ sessionId }, 'Using RemoteAuth with MongoDB')
+    } else {
+      // Use LocalAuth
+      authStrategy = new LocalAuth({ 
+        clientId: sessionId, 
+        dataPath: sessionFolderPath 
+      })
+      logger.info({ sessionId }, 'Using LocalAuth')
+    }
 
     const clientOptions = { 
       puppeteer: { 
         executablePath: chromeBin, 
         headless, 
         args: [
-          '--autoplay-policy=user-gesture-required',
-          '--disable-background-networking',
-          '--disable-background-timer-throttling',
-          '--disable-backgrounding-occluded-windows',
-          '--disable-breakpad',
-          '--disable-client-side-phishing-detection',
-          '--disable-component-update',
-          '--disable-default-apps',
+          '--no-sandbox',
+          '--disable-setuid-sandbox',
           '--disable-dev-shm-usage',
-          '--disable-domain-reliability',
-          '--disable-extensions',
-          '--disable-features=AudioServiceOutOfProcess',
-          '--disable-hang-monitor',
-          '--disable-ipc-flooding-protection',
-          '--disable-notifications',
-          '--disable-offer-store-unmasked-wallet-cards',
-          '--disable-popup-blocking',
-          '--disable-print-preview',
-          '--disable-prompt-on-repost',
-          '--disable-renderer-backgrounding',
-          '--disable-speech-api',
-          '--disable-sync',
-          '--disable-gpu',
           '--disable-accelerated-2d-canvas',
+          '--no-first-run',
+          '--no-zygote',
+          '--disable-gpu',
+          '--disable-web-security',
+          '--disable-features=VizDisplayCompositor',
+          '--disable-extensions',
+          '--disable-plugins',
+          '--disable-default-apps',
+          '--disable-sync',
+          '--disable-translate',
           '--hide-scrollbars',
-          '--ignore-gpu-blacklist',
-          '--metrics-recording-only',
           '--mute-audio',
           '--no-default-browser-check',
-          '--no-first-run',
-          '--no-pings',
-          '--no-zygote',
-          '--password-store=basic',
-          '--use-gl=swiftshader',
-          '--use-mock-keychain',
-          '--disable-setuid-sandbox',
-          '--no-sandbox',
+          '--disable-background-timer-throttling',
+          '--disable-backgrounding-occluded-windows',
+          '--disable-renderer-backgrounding',
+          '--disable-features=TranslateUI',
+          '--disable-ipc-flooding-protection',
+          '--disable-hang-monitor',
+          '--disable-prompt-on-repost',
+          '--disable-domain-reliability',
+          '--disable-component-extensions-with-background-pages',
+          '--disable-background-networking',
+          '--disable-client-side-phishing-detection',
+          '--disable-sync-preferences',
+          '--disable-extensions-http-throttling',
+          '--disable-plugins-discovery',
+          '--disable-preconnect',
+          '--disable-print-preview',
+          '--disable-speech-api',
+          '--disable-file-system',
+          '--disable-presentation-api',
+          '--disable-permissions-api',
+          '--disable-new-tab-first-run',
+          '--disable-background-mode',
+          '--disable-features=TranslateUI,BlinkGenPropertyTrees',
+          '--force-color-profile=srgb',
+          '--memory-pressure-off',
+          '--max_old_space_size=4096',
           '--disable-blink-features=AutomationControlled'
         ]
       }, 
-      authStrategy: localAuth 
+      authStrategy: authStrategy 
     }
+
     if (webVersion) clientOptions.webVersion = webVersion
     clientOptions.webVersionCache = getWebVersionCache(webVersionCacheType, webVersion)
 
@@ -188,10 +212,18 @@ const setupSession = async (sessionId, webhookURL) => {
     if (releaseBrowserLock) await removeSingletonLock(sessionId)
 
     client.once('ready', () => patchWWebLibrary(client).catch(err => logger.error({ sessionId, err }, 'Failed to patch WWebJS library')))
+    
+    // Listen for remote session saved event
+    if (enableMongoDB) {
+      client.on('remote_session_saved', () => {
+        logger.info({ sessionId }, 'Remote session saved successfully')
+      })
+    }
+    
     initWebSocketServer(sessionId)
     await initializeEvents(client, sessionId)
     
-    // Initialize client (simplified like the working version)
+    // Initialize client
     try {
       await client.initialize()
       logger.info({ sessionId }, 'Client initialized successfully')
@@ -216,7 +248,7 @@ const initializeEvents = async (client, sessionId) => {
   // Get session webhook from MongoDB if enabled
   if (enableMongoDB) {
     try {
-      const sessionData = await SessionModel.findOne({ sessionId })
+      const sessionData = await SessionWebhookModel.findOne({ sessionId })
       if (sessionData?.webhookURL) {
         sessionWebhook = sessionData.webhookURL
         logger.info({ sessionId, webhookURL: sessionWebhook }, 'Using session-specific webhook')
@@ -275,6 +307,37 @@ const initializeEvents = async (client, sessionId) => {
 
     if (setMessagesAsSeen) await sleep(1000).then(() => sendMessageSeenStatus(message))
   })
+}
+
+// ------------------------
+// Update session webhook
+// ------------------------
+const updateSessionWebhook = async (sessionId, webhookURL) => {
+  try {
+    const sessionData = await SessionWebhookModel.findOneAndUpdate(
+      { sessionId },
+      { webhookURL, updatedAt: new Date() },
+      { upsert: true, new: true }
+    )
+    logger.info({ sessionId, webhookURL }, 'Session webhook updated in MongoDB')
+    return sessionData
+  } catch (error) {
+    logger.error({ sessionId, err: error }, 'Failed to update session webhook')
+    throw error
+  }
+}
+
+// ------------------------
+// Get session webhook
+// ------------------------
+const getSessionWebhook = async (sessionId) => {
+  try {
+    const sessionData = await SessionWebhookModel.findOne({ sessionId })
+    return sessionData?.webhookURL || baseWebhookURL
+  } catch (error) {
+    logger.error({ sessionId, err: error }, 'Failed to get session webhook')
+    return baseWebhookURL
+  }
 }
 
 // ------------------------
@@ -352,15 +415,19 @@ const deleteSession = async (sessionId, validation) => {
       maxDelay++
     }
     sessions.delete(sessionId)
-    await deleteSessionFolder(sessionId)
+    
+    // Only delete folder if using LocalAuth
+    if (!enableMongoDB) {
+      await deleteSessionFolder(sessionId)
+    }
 
-    // Remove session config from MongoDB if enabled
+    // Remove session webhook config from MongoDB
     if (enableMongoDB) {
       try {
-        await SessionModel.deleteOne({ sessionId })
-        logger.info({ sessionId }, 'Session config removed from MongoDB')
+        await SessionWebhookModel.deleteOne({ sessionId })
+        logger.info({ sessionId }, 'Session webhook config removed from MongoDB')
       } catch (error) {
-        logger.error({ sessionId, err: error }, 'Failed to remove session config from MongoDB')
+        logger.error({ sessionId, err: error }, 'Failed to remove session webhook config from MongoDB')
       }
     }
   } catch (error) {
@@ -395,45 +462,6 @@ const flushSessions = async (deleteOnlyInactive) => {
 }
 
 // ------------------------
-// Update session webhook
-// ------------------------
-const updateSessionWebhook = async (sessionId, webhookURL) => {
-  if (!enableMongoDB) {
-    throw new Error('MongoDB is not enabled. Cannot update session webhook.')
-  }
-
-  try {
-    const sessionData = await SessionModel.findOneAndUpdate(
-      { sessionId },
-      { webhookURL, updatedAt: new Date() },
-      { upsert: true, new: true }
-    )
-    logger.info({ sessionId, webhookURL }, 'Session webhook updated in MongoDB')
-    return sessionData
-  } catch (error) {
-    logger.error({ sessionId, err: error }, 'Failed to update session webhook')
-    throw error
-  }
-}
-
-// ------------------------
-// Get session webhook
-// ------------------------
-const getSessionWebhook = async (sessionId) => {
-  if (!enableMongoDB) {
-    return process.env[sessionId.toUpperCase() + '_WEBHOOK_URL'] || baseWebhookURL
-  }
-
-  try {
-    const sessionData = await SessionModel.findOne({ sessionId })
-    return sessionData?.webhookURL || baseWebhookURL
-  } catch (error) {
-    logger.error({ sessionId, err: error }, 'Failed to get session webhook')
-    return baseWebhookURL
-  }
-}
-
-// ------------------------
 // Helpers
 // ------------------------
 const removeSingletonLock = async (sessionId) => {
@@ -443,66 +471,6 @@ const removeSingletonLock = async (sessionId) => {
     await fs.promises.unlink(lockPath)
   }
 }
-
-const getPuppeteerArgs = () => [
-  '--no-sandbox',
-  '--disable-setuid-sandbox',
-  '--disable-dev-shm-usage',
-  '--disable-accelerated-2d-canvas',
-  '--no-first-run',
-  '--no-zygote',
-  '--disable-gpu',
-  '--disable-web-security',
-  '--disable-features=VizDisplayCompositor',
-  '--disable-extensions',
-  '--disable-plugins',
-  '--disable-default-apps',
-  '--disable-sync',
-  '--disable-translate',
-  '--hide-scrollbars',
-  '--mute-audio',
-  '--no-default-browser-check',
-  '--disable-background-timer-throttling',
-  '--disable-backgrounding-occluded-windows',
-  '--disable-renderer-backgrounding',
-  '--disable-features=TranslateUI',
-  '--disable-ipc-flooding-protection',
-  '--disable-hang-monitor',
-  '--disable-prompt-on-repost',
-  '--disable-domain-reliability',
-  '--disable-component-extensions-with-background-pages',
-  '--disable-background-networking',
-  '--disable-client-side-phishing-detection',
-  '--disable-sync-preferences',
-  '--disable-extensions-http-throttling',
-  '--disable-plugins-discovery',
-  '--disable-preconnect',
-  '--disable-print-preview',
-  '--disable-speech-api',
-  '--disable-file-system',
-  '--disable-presentation-api',
-  '--disable-permissions-api',
-  '--disable-new-tab-first-run',
-  '--disable-background-mode',
-  '--disable-features=TranslateUI,BlinkGenPropertyTrees',
-  '--force-color-profile=srgb',
-  '--memory-pressure-off',
-  '--max_old_space_size=4096',
-  '--disable-blink-features=AutomationControlled',
-  '--disable-software-rasterizer',
-  '--disable-gpu-sandbox',
-  '--disable-background-timer-throttling',
-  '--disable-renderer-backgrounding',
-  '--disable-backgrounding-occluded-windows',
-  '--disable-ipc-flooding-protection',
-  '--disable-features=VizDisplayCompositor',
-  '--disable-gpu-sandbox',
-  '--disable-software-rasterizer',
-  '--disable-background-timer-throttling',
-  '--disable-renderer-backgrounding',
-  '--disable-backgrounding-occluded-windows',
-  '--disable-ipc-flooding-protection'
-]
 
 const getWebVersionCache = (type, version) => {
   switch ((type || 'none').toLowerCase()) {
@@ -528,5 +496,5 @@ module.exports = {
   updateSessionWebhook,
   getSessionWebhook,
   initializeMongoDB,
-  SessionModel
+  SessionWebhookModel
 }

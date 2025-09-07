@@ -1,5 +1,5 @@
 const qr = require('qr-image')
-const { setupSession, deleteSession, reloadSession, validateSession, flushSessions, destroySession, sessions, updateSessionWebhook, getSessionWebhook } = require('../sessionManager')
+const { setupSession, deleteSession, reloadSession, validateSession, flushSessions, destroySession, sessions, updateSessionWebhook, getSessionWebhook } = require('../sessionManagerRemote')
 const { sendErrorResponse, waitForNestedObject, exposeFunctionIfAbsent } = require('../utils')
 const { logger } = require('../logger')
 

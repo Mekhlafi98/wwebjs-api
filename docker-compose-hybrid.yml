@@ -1,7 +1,5 @@
-# Docker Compose for WhatsApp Web.js API with MongoDB
-# This setup includes MongoDB for dynamic per-session webhooks
-
-name: wwebjs-api-with-mongo
+# Hybrid approach: Use working image + external MongoDB
+name: wwebjs-api-hybrid
 
 services:
   # MongoDB Database
@@ -17,31 +15,16 @@ services:
       - MONGO_INITDB_DATABASE=wwebjs-api
     volumes:
       - mongodb_data:/data/db
-      - ./mongo-init:/docker-entrypoint-initdb.d
     networks:
       - wwebjs-network
-    healthcheck:
-      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 40s
 
-  # WhatsApp Web.js API
+  # WhatsApp Web.js API (using working image)
   api:
-    build: .
+    image: avoylenko/wwebjs-api:latest
     container_name: wwebjs-api
     restart: unless-stopped
     ports:
       - "3000:3000"
-    deploy:
-      resources:
-        limits:
-          memory: 2G
-          cpus: '1.0'
-        reservations:
-          memory: 1G
-          cpus: '0.5'
     environment:
       # Core Configuration
       - NODE_ENV=production
@@ -50,19 +33,15 @@ services:
       # API Security
       - API_KEY=your_secure_api_key_here
       
-      # Webhook Configuration
+      # Webhook Configuration (using environment variables)
       - BASE_WEBHOOK_URL=http://localhost:3000/localCallbackExample
       - ENABLE_WEBHOOK=true
       - ENABLE_WEBSOCKET=false
       
-      # MongoDB Configuration
-      - ENABLE_MONGODB=true
-      - MONGO_URI=mongodb://admin:password123@mongodb:27017/wwebjs-api?authSource=admin
-      
       # Session Configuration
       - SESSIONS_PATH=/usr/src/app/sessions
       - AUTO_START_SESSIONS=false
-      - RECOVER_SESSIONS=false
+      - RECOVER_SESSIONS=true
       
       # WhatsApp Web Configuration
       - MAX_ATTACHMENT_SIZE=10000000
@@ -73,10 +52,6 @@ services:
       # Browser Configuration
       - CHROME_BIN=/usr/bin/chromium
       - PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
-      
-      # Web Version (optional)
-      # - WEB_VERSION=2.2328.5
-      # - WEB_VERSION_CACHE_TYPE=remote
       
       # Callback Configuration
       - DISABLED_CALLBACKS=message_ack|message_reaction
@@ -94,21 +69,18 @@ services:
       # Local Callback Example (for testing)
       - ENABLE_LOCAL_CALLBACK_EXAMPLE=true
       
+      # Per-session webhooks using environment variables
+      - CUSTOMER_SUPPORT_WEBHOOK_URL=https://webhook.site/your-customer-support-url
+      - SALES_TEAM_WEBHOOK_URL=https://webhook.site/your-sales-team-url
+      
     volumes:
       - sessions_data:/usr/src/app/sessions
     networks:
       - wwebjs-network
     depends_on:
-      mongodb:
-        condition: service_healthy
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:3000/ping"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 60s
+      - mongodb
 
-  # MongoDB Express (Web-based MongoDB admin interface) - Optional
+  # MongoDB Express (Web-based MongoDB admin interface)
   mongo-express:
     image: mongo-express:1.0.0
     container_name: wwebjs-mongo-express
@@ -124,8 +96,7 @@ services:
     networks:
       - wwebjs-network
     depends_on:
-      mongodb:
-        condition: service_healthy
+      - mongodb
 
 volumes:
   mongodb_data:
