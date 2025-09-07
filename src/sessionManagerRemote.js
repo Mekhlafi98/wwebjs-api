@@ -1,6 +1,7 @@
-// sessionManagerRemote.js - Using official RemoteAuth strategy
+// sessionManagerRemote.js - Using RemoteAuth strategy with fixed MongoStore
 const { Client, LocalAuth, RemoteAuth } = require('whatsapp-web.js')
 const { MongoStore } = require('wwebjs-mongo')
+const { MongoStoreFixed } = require('./mongoStoreFixed')
 const mongoose = require('mongoose')
 const fs = require('fs')
 const path = require('path')
@@ -130,24 +131,24 @@ const setupSession = async (sessionId, webhookURL) => {
       }
     }
 
-    // Choose auth strategy based on MongoDB availability
+    // Use RemoteAuth with MongoDB for WhatsApp sessions (with fixed MongoStore)
     let authStrategy
     if (enableMongoDB) {
-      // Use RemoteAuth with MongoDB
-      const store = new MongoStore({ mongoose: mongoose })
+      // Use our fixed MongoStore to avoid GitHub issue #2631
+      const store = new MongoStoreFixed({ mongoose: mongoose })
       authStrategy = new RemoteAuth({
         clientId: sessionId,
         store: store,
         backupSyncIntervalMs: 300000 // 5 minutes
       })
-      logger.info({ sessionId }, 'Using RemoteAuth with MongoDB')
+      logger.info({ sessionId }, 'Using RemoteAuth with fixed MongoStore for WhatsApp sessions')
     } else {
-      // Use LocalAuth
+      // Fallback to LocalAuth if MongoDB is disabled
       authStrategy = new LocalAuth({ 
         clientId: sessionId, 
         dataPath: sessionFolderPath 
       })
-      logger.info({ sessionId }, 'Using LocalAuth')
+      logger.info({ sessionId }, 'Using LocalAuth (MongoDB disabled)')
     }
 
     const clientOptions = { 
@@ -158,47 +159,14 @@ const setupSession = async (sessionId, webhookURL) => {
           '--no-sandbox',
           '--disable-setuid-sandbox',
           '--disable-dev-shm-usage',
-          '--disable-accelerated-2d-canvas',
-          '--no-first-run',
-          '--no-zygote',
           '--disable-gpu',
-          '--disable-web-security',
-          '--disable-features=VizDisplayCompositor',
+          '--no-first-run',
           '--disable-extensions',
-          '--disable-plugins',
           '--disable-default-apps',
           '--disable-sync',
-          '--disable-translate',
           '--hide-scrollbars',
           '--mute-audio',
-          '--no-default-browser-check',
-          '--disable-background-timer-throttling',
-          '--disable-backgrounding-occluded-windows',
-          '--disable-renderer-backgrounding',
-          '--disable-features=TranslateUI',
-          '--disable-ipc-flooding-protection',
-          '--disable-hang-monitor',
-          '--disable-prompt-on-repost',
-          '--disable-domain-reliability',
-          '--disable-component-extensions-with-background-pages',
-          '--disable-background-networking',
-          '--disable-client-side-phishing-detection',
-          '--disable-sync-preferences',
-          '--disable-extensions-http-throttling',
-          '--disable-plugins-discovery',
-          '--disable-preconnect',
-          '--disable-print-preview',
-          '--disable-speech-api',
-          '--disable-file-system',
-          '--disable-presentation-api',
-          '--disable-permissions-api',
-          '--disable-new-tab-first-run',
-          '--disable-background-mode',
-          '--disable-features=TranslateUI,BlinkGenPropertyTrees',
-          '--force-color-profile=srgb',
-          '--memory-pressure-off',
-          '--max_old_space_size=4096',
-          '--disable-blink-features=AutomationControlled'
+          '--no-default-browser-check'
         ]
       }, 
       authStrategy: authStrategy 
