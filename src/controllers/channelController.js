@@ -1,5 +1,5 @@
 const { MessageMedia } = require('whatsapp-web.js')
-const { sessions } = require('../sessions')
+const { sessions } = require('../sessionManagerRemote')
 const { sendErrorResponse } = require('../utils')
 
 /**

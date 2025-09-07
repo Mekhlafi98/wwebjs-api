@@ -1,6 +1,6 @@
 const { MessageMedia, Location, Poll } = require('whatsapp-web.js')
 const { Readable } = require('stream')
-const { sessions } = require('../sessions')
+const { sessions } = require('../sessionManagerRemote')
 const { sendErrorResponse, decodeBase64 } = require('../utils')
 
 /**

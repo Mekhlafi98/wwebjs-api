@@ -1,4 +1,4 @@
-const { sessions } = require('../sessions')
+const { sessions } = require('../sessionManagerRemote')
 const { sendErrorResponse } = require('../utils')
 
 /**

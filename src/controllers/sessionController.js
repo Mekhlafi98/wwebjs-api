@@ -402,7 +402,10 @@ const getSessions = async (req, res) => {
       }
     }
   */
-  return res.json({ success: true, result: Array.from(sessions.keys()) })
+  const sessionKeys = Array.from(sessions.keys())
+  console.log('Current sessions in Map:', sessionKeys)
+  console.log('Sessions Map size:', sessions.size)
+  return res.json({ success: true, result: sessionKeys })
 }
 
 /**
