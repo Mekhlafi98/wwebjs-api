@@ -1,0 +1,24 @@
+# Extend the working pre-built image and add MongoDB integration
+FROM avoylenko/wwebjs-api:latest
+
+# Install additional dependencies for MongoDB
+RUN npm install mongoose wwebjs-mongo
+
+# Copy our custom MongoDB integration files
+COPY src/mongoStoreFixed.js /usr/src/app/src/mongoStoreFixed.js
+COPY src/sessionManagerRemote.js /usr/src/app/src/sessionManagerRemote.js
+
+# Update the main files to use our MongoDB integration
+COPY src/config.js /usr/src/app/src/config.js
+COPY src/controllers/sessionController.js /usr/src/app/src/controllers/sessionController.js
+COPY src/routes.js /usr/src/app/src/routes.js
+COPY server.js /usr/src/app/server.js
+
+# Ensure sessions directory exists
+RUN mkdir -p /usr/src/app/sessions
+
+# Expose port
+EXPOSE 3000
+
+# Start the application
+CMD ["npm", "start"]
