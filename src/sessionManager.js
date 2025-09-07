@@ -435,7 +435,17 @@ const getPuppeteerArgs = () => [
   '--use-mock-keychain',
   '--disable-setuid-sandbox',
   '--no-sandbox',
-  '--disable-blink-features=AutomationControlled'
+  '--disable-blink-features=AutomationControlled',
+  '--disable-web-security',
+  '--disable-features=VizDisplayCompositor',
+  '--single-process',
+  '--no-zygote',
+  '--disable-gpu-sandbox',
+  '--disable-software-rasterizer',
+  '--disable-background-timer-throttling',
+  '--disable-renderer-backgrounding',
+  '--disable-backgrounding-occluded-windows',
+  '--disable-ipc-flooding-protection'
 ]
 
 const getWebVersionCache = (type, version) => {

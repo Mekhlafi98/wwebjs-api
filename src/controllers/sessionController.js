@@ -498,9 +498,18 @@ const startSessionWithWebhook = async (req, res) => {
       }
     }
     */
-    // wait until the client is created
-    await waitForNestedObject(setupSessionReturn.client, 'pupPage')
-    res.json({ success: true, message: setupSessionReturn.message, webhookURL })
+    // wait until the client is created with extended timeout for Docker environments
+    try {
+      await waitForNestedObject(setupSessionReturn.client, 'pupPage', 60000)
+      res.json({ success: true, message: setupSessionReturn.message, webhookURL })
+    } catch (waitError) {
+      logger.error({ sessionId, err: waitError }, 'Browser initialization timeout')
+      res.json({ 
+        success: false, 
+        message: 'Session started but browser initialization is taking longer than expected. Please check session status.',
+        webhookURL 
+      })
+    }
   } catch (error) {
     logger.error({ sessionId, err: error }, 'Failed to start session with webhook')
     sendErrorResponse(res, 500, error.message)
