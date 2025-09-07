@@ -6,9 +6,6 @@ const mongoose = require('mongoose')
 const { logger } = require('./logger')
 const { patchWWebLibrary, triggerWebhook, waitForNestedObject, isEventEnabled, sendMessageSeenStatus, sleep } = require('./utils')
 const { initWebSocketServer, terminateWebSocketServer, triggerWebSocket } = require('./websocket')
-
-const { LocalAuth } = require('whatsapp-web.js')
-const MongoAuth = require('./mongoAuth') // custom auth strategy
 const {
   sessionFolderPath,
   maxAttachmentSize,
@@ -19,20 +16,42 @@ const {
   chromeBin,
   headless,
   releaseBrowserLock,
-  storageMode,
-  mongoUri,
+  baseWebhookURL,
+  enableMongoDB,
+  mongoUri
 } = require('./config')
 
 // MongoDB Schema for per-session config
 const sessionSchema = new mongoose.Schema({
   sessionId: { type: String, required: true, unique: true },
   webhookURL: { type: String, required: true },
-  createdAt: { type: Date, default: Date.now }
+  createdAt: { type: Date, default: Date.now },
+  updatedAt: { type: Date, default: Date.now }
 })
+
 const SessionModel = mongoose.model('Session', sessionSchema)
 
 // In-memory map for active clients
 const sessions = new Map()
+
+// Initialize MongoDB connection
+const initializeMongoDB = async () => {
+  if (!enableMongoDB) {
+    logger.info('MongoDB is disabled, using in-memory storage for session configs')
+    return
+  }
+
+  try {
+    await mongoose.connect(mongoUri, {
+      useNewUrlParser: true,
+      useUnifiedTopology: true
+    })
+    logger.info('Connected to MongoDB successfully')
+  } catch (error) {
+    logger.error({ err: error }, 'Failed to connect to MongoDB')
+    throw error
+  }
+}
 
 // ------------------------
 // Validate if session is ready
@@ -96,20 +115,32 @@ const setupSession = async (sessionId, webhookURL) => {
 
     logger.info({ sessionId }, 'Session is being initiated')
 
-    // Save per-session config in MongoDB
-    if (webhookURL) {
-      await SessionModel.findOneAndUpdate(
-        { sessionId },
-        { webhookURL },
-        { upsert: true, new: true }
-      )
+    // Save per-session config in MongoDB if enabled
+    if (enableMongoDB && webhookURL) {
+      try {
+        await SessionModel.findOneAndUpdate(
+          { sessionId },
+          { webhookURL, updatedAt: new Date() },
+          { upsert: true, new: true }
+        )
+        logger.info({ sessionId }, 'Session config saved to MongoDB')
+      } catch (error) {
+        logger.error({ sessionId, err: error }, 'Failed to save session config to MongoDB')
+      }
     }
 
     const localAuth = new LocalAuth({ clientId: sessionId, dataPath: sessionFolderPath })
     delete localAuth.logout
     localAuth.logout = () => { }
 
-    const clientOptions = { puppeteer: { executablePath: chromeBin, headless, args: getPuppeteerArgs() }, authStrategy: localAuth }
+    const clientOptions = { 
+      puppeteer: { 
+        executablePath: chromeBin, 
+        headless, 
+        args: getPuppeteerArgs() 
+      }, 
+      authStrategy: localAuth 
+    }
     if (webVersion) clientOptions.webVersion = webVersion
     clientOptions.webVersionCache = getWebVersionCache(webVersionCacheType, webVersion)
 
@@ -129,32 +160,31 @@ const setupSession = async (sessionId, webhookURL) => {
   }
 }
 
-
-const setupSession = async (sessionId, webhookURL) => {
-  let authStrategy
-  if (storageMode === 'local') {
-    authStrategy = new LocalAuth({ clientId: sessionId, dataPath: sessionFolderPath })
-  } else if (storageMode === 'mongo') {
-    authStrategy = new MongoAuth({ sessionId, mongoUri })
-  }
-
-  const client = new Client({ authStrategy, puppeteer: {...} })
-
-  // Save webhook URL per session
-  client.sessionWebhook = webhookURL || baseWebhookURL
-
-  await client.initialize()
-  sessions.set(sessionId, client)
-  return client
-}
-
-
 // ------------------------
 // Initialize client events
 // ------------------------
 const initializeEvents = async (client, sessionId) => {
-  const sessionData = await SessionModel.findOne({ sessionId })
-  const sessionWebhook = sessionData?.webhookURL
+  let sessionWebhook = baseWebhookURL
+
+  // Get session webhook from MongoDB if enabled
+  if (enableMongoDB) {
+    try {
+      const sessionData = await SessionModel.findOne({ sessionId })
+      if (sessionData?.webhookURL) {
+        sessionWebhook = sessionData.webhookURL
+        logger.info({ sessionId, webhookURL: sessionWebhook }, 'Using session-specific webhook')
+      }
+    } catch (error) {
+      logger.error({ sessionId, err: error }, 'Failed to get session webhook from MongoDB')
+    }
+  } else {
+    // Fallback to environment variable approach
+    const envWebhook = process.env[sessionId.toUpperCase() + '_WEBHOOK_URL']
+    if (envWebhook) {
+      sessionWebhook = envWebhook
+      logger.info({ sessionId, webhookURL: sessionWebhook }, 'Using environment variable webhook')
+    }
+  }
 
   if (recoverSessions) {
     await waitForNestedObject(client, 'pupPage')
@@ -187,7 +217,6 @@ const initializeEvents = async (client, sessionId) => {
 
   // Special handling for message + media
   client.on('message', async (message) => {
-    const sessionWebhook = sessionData?.webhookURL
     triggerWebhook(sessionWebhook, sessionId, 'message', { message })
     triggerWebSocket(sessionId, 'message', { message })
 
@@ -245,6 +274,119 @@ const destroySession = async (sessionId) => {
 }
 
 // ------------------------
+// Delete session (with folder cleanup)
+// ------------------------
+const deleteSession = async (sessionId, validation) => {
+  try {
+    const client = sessions.get(sessionId)
+    if (!client) {
+      return
+    }
+    client.pupPage?.removeAllListeners('close')
+    client.pupPage?.removeAllListeners('error')
+    try {
+      await terminateWebSocketServer(sessionId)
+    } catch (error) {
+      logger.error({ sessionId, err: error }, 'Failed to terminate WebSocket server')
+    }
+    if (validation.success) {
+      // Client Connected, request logout
+      logger.info({ sessionId }, 'Logging out session')
+      await client.logout()
+    } else if (validation.message === 'session_not_connected') {
+      // Client not Connected, request destroy
+      logger.info({ sessionId }, 'Destroying session')
+      await client.destroy()
+    }
+    // Wait 10 secs for client.pupBrowser to be disconnected before deleting the folder
+    let maxDelay = 0
+    while (client.pupBrowser.isConnected() && (maxDelay < 10)) {
+      await new Promise(resolve => setTimeout(resolve, 1000))
+      maxDelay++
+    }
+    sessions.delete(sessionId)
+    await deleteSessionFolder(sessionId)
+
+    // Remove session config from MongoDB if enabled
+    if (enableMongoDB) {
+      try {
+        await SessionModel.deleteOne({ sessionId })
+        logger.info({ sessionId }, 'Session config removed from MongoDB')
+      } catch (error) {
+        logger.error({ sessionId, err: error }, 'Failed to remove session config from MongoDB')
+      }
+    }
+  } catch (error) {
+    logger.error({ sessionId, err: error }, 'Failed to delete session')
+    throw error
+  }
+}
+
+// ------------------------
+// Flush sessions
+// ------------------------
+const flushSessions = async (deleteOnlyInactive) => {
+  try {
+    // Read the contents of the sessions folder
+    const files = await fs.promises.readdir(sessionFolderPath)
+    // Iterate through the files in the parent folder
+    for (const file of files) {
+      // Use regular expression to extract the string from the folder name
+      const match = file.match(/^session-(.+)$/)
+      if (match) {
+        const sessionId = match[1]
+        const validation = await validateSession(sessionId)
+        if (!deleteOnlyInactive || !validation.success) {
+          await deleteSession(sessionId, validation)
+        }
+      }
+    }
+  } catch (error) {
+    logger.error(error, 'Failed to flush sessions')
+    throw error
+  }
+}
+
+// ------------------------
+// Update session webhook
+// ------------------------
+const updateSessionWebhook = async (sessionId, webhookURL) => {
+  if (!enableMongoDB) {
+    throw new Error('MongoDB is not enabled. Cannot update session webhook.')
+  }
+
+  try {
+    const sessionData = await SessionModel.findOneAndUpdate(
+      { sessionId },
+      { webhookURL, updatedAt: new Date() },
+      { upsert: true, new: true }
+    )
+    logger.info({ sessionId, webhookURL }, 'Session webhook updated in MongoDB')
+    return sessionData
+  } catch (error) {
+    logger.error({ sessionId, err: error }, 'Failed to update session webhook')
+    throw error
+  }
+}
+
+// ------------------------
+// Get session webhook
+// ------------------------
+const getSessionWebhook = async (sessionId) => {
+  if (!enableMongoDB) {
+    return process.env[sessionId.toUpperCase() + '_WEBHOOK_URL'] || baseWebhookURL
+  }
+
+  try {
+    const sessionData = await SessionModel.findOne({ sessionId })
+    return sessionData?.webhookURL || baseWebhookURL
+  } catch (error) {
+    logger.error({ sessionId, err: error }, 'Failed to get session webhook')
+    return baseWebhookURL
+  }
+}
+
+// ------------------------
 // Helpers
 // ------------------------
 const removeSingletonLock = async (sessionId) => {
@@ -256,10 +398,44 @@ const removeSingletonLock = async (sessionId) => {
 }
 
 const getPuppeteerArgs = () => [
-  '--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage',
-  '--disable-extensions', '--disable-background-timer-throttling',
-  '--disable-backgrounding-occluded-windows', '--disable-client-side-phishing-detection',
-  '--disable-sync', '--disable-gpu', '--disable-popup-blocking', '--hide-scrollbars'
+  '--autoplay-policy=user-gesture-required',
+  '--disable-background-networking',
+  '--disable-background-timer-throttling',
+  '--disable-backgrounding-occluded-windows',
+  '--disable-breakpad',
+  '--disable-client-side-phishing-detection',
+  '--disable-component-update',
+  '--disable-default-apps',
+  '--disable-dev-shm-usage',
+  '--disable-domain-reliability',
+  '--disable-extensions',
+  '--disable-features=AudioServiceOutOfProcess',
+  '--disable-hang-monitor',
+  '--disable-ipc-flooding-protection',
+  '--disable-notifications',
+  '--disable-offer-store-unmasked-wallet-cards',
+  '--disable-popup-blocking',
+  '--disable-print-preview',
+  '--disable-prompt-on-repost',
+  '--disable-renderer-backgrounding',
+  '--disable-speech-api',
+  '--disable-sync',
+  '--disable-gpu',
+  '--disable-accelerated-2d-canvas',
+  '--hide-scrollbars',
+  '--ignore-gpu-blacklist',
+  '--metrics-recording-only',
+  '--mute-audio',
+  '--no-default-browser-check',
+  '--no-first-run',
+  '--no-pings',
+  '--no-zygote',
+  '--password-store=basic',
+  '--use-gl=swiftshader',
+  '--use-mock-keychain',
+  '--disable-setuid-sandbox',
+  '--no-sandbox',
+  '--disable-blink-features=AutomationControlled'
 ]
 
 const getWebVersionCache = (type, version) => {
@@ -280,5 +456,11 @@ module.exports = {
   validateSession,
   reloadSession,
   destroySession,
-  deleteSessionFolder
+  deleteSession,
+  deleteSessionFolder,
+  flushSessions,
+  updateSessionWebhook,
+  getSessionWebhook,
+  initializeMongoDB,
+  SessionModel
 }

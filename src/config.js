@@ -26,7 +26,8 @@ const basePath = process.env.BASE_PATH || ''
 const trustProxy = process.env.TRUST_PROXY ? (process.env.TRUST_PROXY).toLowerCase() === 'true' : false
 
 const storageMode = process.env.STORAGE_MODE || 'local'
-const mongoUri = process.env.MONGO_URI || 'none'
+const mongoUri = process.env.MONGO_URI || 'mongodb://localhost:27017/wwebjs-api'
+const enableMongoDB = process.env.ENABLE_MONGODB ? (process.env.ENABLE_MONGODB).toLowerCase() === 'true' : false
 
 module.exports = {
   sessionFolderPath,
@@ -53,4 +54,5 @@ module.exports = {
   trustProxy,
   storageMode,
   mongoUri,
+  enableMongoDB,
 }
