@@ -27,6 +27,17 @@ if (enableLocalCallbackExample) {
   routes.post('/localCallbackExample', [middleware.apikey, middleware.rateLimiter], healthController.localCallbackExample)
 }
 
+// Test webhook endpoint for testing webhook functionality
+routes.post('/test-webhook', (req, res) => {
+  console.log('Test webhook received:', JSON.stringify(req.body, null, 2))
+  res.json({ 
+    success: true, 
+    message: 'Test webhook received successfully',
+    received: req.body,
+    timestamp: new Date().toISOString()
+  })
+})
+
 /**
  * ================
  * SESSION ENDPOINTS

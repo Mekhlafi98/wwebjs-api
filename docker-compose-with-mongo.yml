@@ -51,7 +51,7 @@ services:
       - API_KEY=your_secure_api_key_here
       
       # Webhook Configuration
-      - BASE_WEBHOOK_URL=http://localhost:3000/localCallbackExample
+      - BASE_WEBHOOK_URL=http://localhost:3000/test-webhook
       - ENABLE_WEBHOOK=true
       - ENABLE_WEBSOCKET=false
       
@@ -61,8 +61,8 @@ services:
       
       # Session Configuration
       - SESSIONS_PATH=/usr/src/app/sessions
-      - AUTO_START_SESSIONS=false
-      - RECOVER_SESSIONS=false
+      - AUTO_START_SESSIONS=true
+      - RECOVER_SESSIONS=true
       
       # WhatsApp Web Configuration
       - MAX_ATTACHMENT_SIZE=10000000

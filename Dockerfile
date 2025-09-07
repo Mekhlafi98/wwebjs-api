@@ -31,6 +31,12 @@ COPY --from=deps /usr/src/app/node_modules ./node_modules
 # Copy application code
 COPY . .
 
+# Ensure sessions directory exists
+RUN mkdir -p /usr/src/app/sessions
+
+# Set proper permissions
+RUN chown -R node:node /usr/src/app
+
 EXPOSE 3000
 
 CMD ["npm", "start"]

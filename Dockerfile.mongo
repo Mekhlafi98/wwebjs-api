@@ -10,7 +10,14 @@ COPY src/sessionManagerRemote.js /usr/src/app/src/sessionManagerRemote.js
 
 # Update the main files to use our MongoDB integration
 COPY src/config.js /usr/src/app/src/config.js
+COPY src/app.js /usr/src/app/src/app.js
 COPY src/controllers/sessionController.js /usr/src/app/src/controllers/sessionController.js
+COPY src/controllers/messageController.js /usr/src/app/src/controllers/messageController.js
+COPY src/controllers/groupChatController.js /usr/src/app/src/controllers/groupChatController.js
+COPY src/controllers/contactController.js /usr/src/app/src/controllers/contactController.js
+COPY src/controllers/clientController.js /usr/src/app/src/controllers/clientController.js
+COPY src/controllers/chatController.js /usr/src/app/src/controllers/chatController.js
+COPY src/controllers/channelController.js /usr/src/app/src/controllers/channelController.js
 COPY src/routes.js /usr/src/app/src/routes.js
 COPY server.js /usr/src/app/server.js
 

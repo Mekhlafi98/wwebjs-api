@@ -44,10 +44,7 @@ const initializeMongoDB = async () => {
   }
 
   try {
-    await mongoose.connect(mongoUri, {
-      useNewUrlParser: true,
-      useUnifiedTopology: true
-    })
+    await mongoose.connect(mongoUri)
     logger.info('Connected to MongoDB successfully')
   } catch (error) {
     logger.error({ err: error }, 'Failed to connect to MongoDB')
@@ -115,7 +112,7 @@ const setupSession = async (sessionId, webhookURL) => {
       return { success: false, message: `Session already exists for: ${sessionId}`, client: sessions.get(sessionId) }
     }
 
-    logger.info({ sessionId }, 'Session is being initiated')
+    logger.info({ sessionId, baseWebhookURL }, 'Session is being initiated')
 
     // Save per-session webhook config in MongoDB
     if (webhookURL) {
@@ -125,7 +122,7 @@ const setupSession = async (sessionId, webhookURL) => {
           { webhookURL, updatedAt: new Date() },
           { upsert: true, new: true }
         )
-        logger.info({ sessionId }, 'Session webhook config saved to MongoDB')
+        logger.info({ sessionId, webhookURL }, 'Session webhook config saved to MongoDB')
       } catch (error) {
         logger.error({ sessionId, err: error }, 'Failed to save session webhook config to MongoDB')
       }
