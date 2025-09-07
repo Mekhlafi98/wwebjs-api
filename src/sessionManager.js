@@ -137,7 +137,9 @@ const setupSession = async (sessionId, webhookURL) => {
       puppeteer: { 
         executablePath: chromeBin, 
         headless, 
-        args: getPuppeteerArgs() 
+        args: getPuppeteerArgs(),
+        timeout: 120000, // 2 minutes timeout for browser launch
+        protocolTimeout: 120000 // 2 minutes timeout for protocol operations
       }, 
       authStrategy: localAuth 
     }
@@ -151,7 +153,15 @@ const setupSession = async (sessionId, webhookURL) => {
     client.once('ready', () => patchWWebLibrary(client).catch(err => logger.error({ sessionId, err }, 'Failed to patch WWebJS library')))
     initWebSocketServer(sessionId)
     await initializeEvents(client, sessionId)
-    await client.initialize()
+    
+    // Initialize client with better error handling
+    try {
+      await client.initialize()
+      logger.info({ sessionId }, 'Client initialized successfully')
+    } catch (initError) {
+      logger.error({ sessionId, err: initError }, 'Failed to initialize client')
+      throw initError
+    }
 
     sessions.set(sessionId, client)
     return { success: true, message: 'Session initiated successfully', client }
@@ -398,50 +408,52 @@ const removeSingletonLock = async (sessionId) => {
 }
 
 const getPuppeteerArgs = () => [
-  '--autoplay-policy=user-gesture-required',
-  '--disable-background-networking',
-  '--disable-background-timer-throttling',
-  '--disable-backgrounding-occluded-windows',
-  '--disable-breakpad',
-  '--disable-client-side-phishing-detection',
-  '--disable-component-update',
-  '--disable-default-apps',
-  '--disable-dev-shm-usage',
-  '--disable-domain-reliability',
-  '--disable-extensions',
-  '--disable-features=AudioServiceOutOfProcess',
-  '--disable-hang-monitor',
-  '--disable-ipc-flooding-protection',
-  '--disable-notifications',
-  '--disable-offer-store-unmasked-wallet-cards',
-  '--disable-popup-blocking',
-  '--disable-print-preview',
-  '--disable-prompt-on-repost',
-  '--disable-renderer-backgrounding',
-  '--disable-speech-api',
-  '--disable-sync',
-  '--disable-gpu',
-  '--disable-accelerated-2d-canvas',
-  '--hide-scrollbars',
-  '--ignore-gpu-blacklist',
-  '--metrics-recording-only',
-  '--mute-audio',
-  '--no-default-browser-check',
-  '--no-first-run',
-  '--no-pings',
-  '--no-zygote',
-  '--password-store=basic',
-  '--use-gl=swiftshader',
-  '--use-mock-keychain',
-  '--disable-setuid-sandbox',
   '--no-sandbox',
-  '--disable-blink-features=AutomationControlled',
+  '--disable-setuid-sandbox',
+  '--disable-dev-shm-usage',
+  '--disable-accelerated-2d-canvas',
+  '--no-first-run',
+  '--no-zygote',
+  '--disable-gpu',
   '--disable-web-security',
   '--disable-features=VizDisplayCompositor',
-  '--single-process',
-  '--no-zygote',
-  '--disable-gpu-sandbox',
+  '--disable-extensions',
+  '--disable-plugins',
+  '--disable-default-apps',
+  '--disable-sync',
+  '--disable-translate',
+  '--hide-scrollbars',
+  '--mute-audio',
+  '--no-default-browser-check',
+  '--disable-background-timer-throttling',
+  '--disable-backgrounding-occluded-windows',
+  '--disable-renderer-backgrounding',
+  '--disable-features=TranslateUI',
+  '--disable-ipc-flooding-protection',
+  '--disable-hang-monitor',
+  '--disable-prompt-on-repost',
+  '--disable-domain-reliability',
+  '--disable-component-extensions-with-background-pages',
+  '--disable-background-networking',
+  '--disable-client-side-phishing-detection',
+  '--disable-sync-preferences',
+  '--disable-extensions-http-throttling',
+  '--disable-plugins-discovery',
+  '--disable-preconnect',
+  '--disable-print-preview',
+  '--disable-speech-api',
+  '--disable-file-system',
+  '--disable-presentation-api',
+  '--disable-permissions-api',
+  '--disable-new-tab-first-run',
+  '--disable-background-mode',
+  '--disable-features=TranslateUI,BlinkGenPropertyTrees',
+  '--force-color-profile=srgb',
+  '--memory-pressure-off',
+  '--max_old_space_size=4096',
+  '--disable-blink-features=AutomationControlled',
   '--disable-software-rasterizer',
+  '--disable-gpu-sandbox',
   '--disable-background-timer-throttling',
   '--disable-renderer-backgrounding',
   '--disable-backgrounding-occluded-windows',
