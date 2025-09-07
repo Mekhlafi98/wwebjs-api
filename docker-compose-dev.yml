@@ -1,0 +1,86 @@
+# Development Docker Compose for WhatsApp Web.js API with MongoDB
+# Simplified setup for development and testing
+
+name: wwebjs-api-dev
+
+services:
+  # MongoDB Database
+  mongodb:
+    image: mongo:7.0
+    container_name: wwebjs-mongodb-dev
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    environment:
+      - MONGO_INITDB_DATABASE=wwebjs-api
+    volumes:
+      - mongodb_dev_data:/data/db
+    networks:
+      - wwebjs-dev-network
+
+  # WhatsApp Web.js API
+  api:
+    build: .
+    container_name: wwebjs-api-dev
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      # Core Configuration
+      - NODE_ENV=development
+      - PORT=3000
+      
+      # API Security (disabled for dev)
+      # - API_KEY=dev-api-key
+      
+      # Webhook Configuration
+      - BASE_WEBHOOK_URL=http://localhost:3000/localCallbackExample
+      - ENABLE_WEBHOOK=true
+      - ENABLE_WEBSOCKET=false
+      
+      # MongoDB Configuration
+      - ENABLE_MONGODB=true
+      - MONGO_URI=mongodb://mongodb:27017/wwebjs-api
+      
+      # Session Configuration
+      - SESSIONS_PATH=/usr/src/app/sessions
+      - AUTO_START_SESSIONS=false
+      - RECOVER_SESSIONS=true
+      
+      # WhatsApp Web Configuration
+      - MAX_ATTACHMENT_SIZE=10000000
+      - SET_MESSAGES_AS_SEEN=false
+      - HEADLESS=true
+      - RELEASE_BROWSER_LOCK=true
+      
+      # Browser Configuration
+      - CHROME_BIN=/usr/bin/chromium
+      - PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
+      
+      # Callback Configuration
+      - DISABLED_CALLBACKS=
+      
+      # Swagger Documentation
+      - ENABLE_SWAGGER_ENDPOINT=true
+      
+      # Logging
+      - LOG_LEVEL=debug
+      
+      # Local Callback Example (for testing)
+      - ENABLE_LOCAL_CALLBACK_EXAMPLE=true
+      
+    volumes:
+      - ./sessions:/usr/src/app/sessions
+      - ./src:/usr/src/app/src
+    networks:
+      - wwebjs-dev-network
+    depends_on:
+      - mongodb
+
+volumes:
+  mongodb_dev_data:
+    driver: local
+
+networks:
+  wwebjs-dev-network:
+    driver: bridge

@@ -1,0 +1,130 @@
+# Docker Compose for WhatsApp Web.js API with MongoDB
+# This setup includes MongoDB for dynamic per-session webhooks
+
+name: wwebjs-api-with-mongo
+
+services:
+  # MongoDB Database
+  mongodb:
+    image: mongo:7.0
+    container_name: wwebjs-mongodb
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=admin
+      - MONGO_INITDB_ROOT_PASSWORD=password123
+      - MONGO_INITDB_DATABASE=wwebjs-api
+    volumes:
+      - mongodb_data:/data/db
+      - ./mongo-init:/docker-entrypoint-initdb.d
+    networks:
+      - wwebjs-network
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # WhatsApp Web.js API
+  api:
+    image: avoylenko/wwebjs-api:latest
+    container_name: wwebjs-api
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      # Core Configuration
+      - NODE_ENV=production
+      - PORT=3000
+      
+      # API Security
+      - API_KEY=your_secure_api_key_here
+      
+      # Webhook Configuration
+      - BASE_WEBHOOK_URL=https://your-webhook-endpoint.com/webhook
+      - ENABLE_WEBHOOK=true
+      - ENABLE_WEBSOCKET=false
+      
+      # MongoDB Configuration
+      - ENABLE_MONGODB=true
+      - MONGO_URI=mongodb://admin:password123@mongodb:27017/wwebjs-api?authSource=admin
+      
+      # Session Configuration
+      - SESSIONS_PATH=/usr/src/app/sessions
+      - AUTO_START_SESSIONS=true
+      - RECOVER_SESSIONS=true
+      
+      # WhatsApp Web Configuration
+      - MAX_ATTACHMENT_SIZE=10000000
+      - SET_MESSAGES_AS_SEEN=false
+      - HEADLESS=true
+      - RELEASE_BROWSER_LOCK=true
+      
+      # Browser Configuration
+      - CHROME_BIN=/usr/bin/chromium
+      - PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
+      
+      # Web Version (optional)
+      # - WEB_VERSION=2.2328.5
+      # - WEB_VERSION_CACHE_TYPE=remote
+      
+      # Callback Configuration
+      - DISABLED_CALLBACKS=message_ack|message_reaction
+      
+      # Swagger Documentation
+      - ENABLE_SWAGGER_ENDPOINT=true
+      
+      # Rate Limiting
+      - RATE_LIMIT_MAX=1000
+      - RATE_LIMIT_WINDOW_MS=1000
+      
+      # Logging
+      - LOG_LEVEL=info
+      
+      # Local Callback Example (for testing)
+      - ENABLE_LOCAL_CALLBACK_EXAMPLE=true
+      
+    volumes:
+      - sessions_data:/usr/src/app/sessions
+    networks:
+      - wwebjs-network
+    depends_on:
+      mongodb:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+  # MongoDB Express (Web-based MongoDB admin interface) - Optional
+  mongo-express:
+    image: mongo-express:1.0.0
+    container_name: wwebjs-mongo-express
+    restart: unless-stopped
+    ports:
+      - "8081:8081"
+    environment:
+      - ME_CONFIG_MONGODB_ADMINUSERNAME=admin
+      - ME_CONFIG_MONGODB_ADMINPASSWORD=password123
+      - ME_CONFIG_MONGODB_URL=mongodb://admin:password123@mongodb:27017/
+      - ME_CONFIG_BASICAUTH_USERNAME=admin
+      - ME_CONFIG_BASICAUTH_PASSWORD=admin123
+    networks:
+      - wwebjs-network
+    depends_on:
+      mongodb:
+        condition: service_healthy
+
+volumes:
+  mongodb_data:
+    driver: local
+  sessions_data:
+    driver: local
+
+networks:
+  wwebjs-network:
+    driver: bridge
